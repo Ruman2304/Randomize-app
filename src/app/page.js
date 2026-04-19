@@ -10,6 +10,7 @@ export default function Home() {
   const router = useRouter();
 
   const [location, setLocation] = useState('home');
+  const [exactPlaceName, setExactPlaceName] = useState(null);
   const [intensity, setIntensity] = useState(1);
   const [task, setTask] = useState(null);
   const [isLoadingTask, setIsLoadingTask] = useState(false);
@@ -19,6 +20,7 @@ export default function Home() {
   const [isPublic, setIsPublic] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [chickenMsg, setChickenMsg] = useState(null);
 
   useEffect(() => {
     if (!user && !loading) {
@@ -35,28 +37,30 @@ export default function Home() {
     navigator.geolocation.getCurrentPosition(async (position) => {
       try {
         const { latitude, longitude } = position.coords;
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
+        const res = await fetch('/api/location/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lat: latitude, lon: longitude })
+        });
         const data = await res.json();
         
-        // Simple mapping based on OSM categories
-        const amenity = data.address?.amenity || data.address?.leisure || '';
-        let mappedLoc = 'public';
-        
-        if (['university', 'college', 'school', 'library'].includes(amenity)) mappedLoc = 'university';
-        else if (['park', 'garden', 'nature_reserve'].includes(amenity)) mappedLoc = 'park';
-        else if (['gym', 'sports_centre'].includes(amenity)) mappedLoc = 'gym';
-        else if (data.address?.residential || data.address?.house) mappedLoc = 'home';
-        
-        setLocation(mappedLoc);
+        if (res.ok) {
+          setLocation(data.mappedLoc || 'general public places');
+          setExactPlaceName(data.exactName || null);
+        } else {
+          setLocation('general public places');
+          setExactPlaceName(null);
+        }
       } catch (err) {
         console.error(err);
-        setLocation('public');
+        setLocation('general public places');
+        setExactPlaceName(null);
       } finally {
         setLocLoading(false);
       }
     }, () => {
       setLocLoading(false);
-      setLocation('public');
+      setLocation('general public places');
     });
   };
 
@@ -67,9 +71,13 @@ export default function Home() {
     setIsLoadingTask(true);
     setTask(null);
     setSuccess(false);
+    setChickenMsg(null);
     setVideoFile(null);
     try {
-      const res = await fetch(`/api/tasks/suggest?location=${encodeURIComponent(location)}&intensity=${intensity}`);
+      let queryUrl = `/api/tasks/suggest?location=${encodeURIComponent(location)}&intensity=${intensity}`;
+      if (exactPlaceName) queryUrl += `&exactName=${encodeURIComponent(exactPlaceName)}`;
+
+      const res = await fetch(queryUrl);
       const data = await res.json();
       if (res.ok) {
         setTask(data.task);
@@ -118,6 +126,34 @@ export default function Home() {
     }
   };
 
+  const handleChickenOut = async () => {
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/tasks/chickenout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: task.id,
+          intensity: task.intensity,
+          location: task.location,
+          description: task.description
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setTask(null);
+        setChickenMsg(data.auraLost);
+        refreshUser();
+      } else {
+        alert(data.error || 'Failed to chicken out');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="animate-in" style={{ maxWidth: '600px', margin: '0 auto' }}>
       {!task && !isLoadingTask && (
@@ -129,26 +165,32 @@ export default function Home() {
           
           <div style={{ textAlign: 'left', marginBottom: '1.5rem' }}>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600' }}>Location</label>
-            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-              <input 
-                type="text" 
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', alignItems: 'center' }}>
+              <select 
                 value={location} 
-                onChange={(e) => setLocation(e.target.value)} 
-                placeholder="e.g. university, park, public, home"
-                list="locations"
-                style={{ flex: 1, marginBottom: 0 }}
-              />
-              <button onClick={handleGetCurrentLocation} className="btn-secondary" style={{ width: 'auto', padding: '0 1rem' }} disabled={locLoading}>
-                {locLoading ? '...' : '📍 Auto'}
+                onChange={(e) => {
+                  setLocation(e.target.value);
+                  setExactPlaceName(null); // Clear explicit place name if user overrides manually
+                }} 
+                style={{ flex: 1, padding: '0.5rem', borderRadius: '8px', border: '1px solid var(--surface-border)', background: 'rgba(0,0,0,0.3)', color: 'white' }}
+              >
+                <option value="home">Home</option>
+                <option value="university">University</option>
+                <option value="school">School</option>
+                <option value="garden">Garden / Park</option>
+                <option value="mall">Mall</option>
+                <option value="police station">Police Station</option>
+                <option value="general public places">General Public Places</option>
+              </select>
+              <button type="button" onClick={handleGetCurrentLocation} className="btn-secondary" style={{ width: 'auto', padding: '0 1rem', margin: 0 }} disabled={locLoading}>
+                {locLoading ? '...' : '📍 Auto Maps AI'}
               </button>
             </div>
-            <datalist id="locations">
-              <option value="university" />
-              <option value="park" />
-              <option value="home" />
-              <option value="gym" />
-              <option value="public" />
-            </datalist>
+            {exactPlaceName && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--secondary)', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                Detected: <strong>{exactPlaceName}</strong>
+              </p>
+            )}
           </div>
 
           <div style={{ textAlign: 'left', marginBottom: '2rem' }}>
@@ -243,8 +285,8 @@ export default function Home() {
             )}
 
             <div style={{ display: 'flex', gap: '1rem' }}>
-              <button type="button" onClick={() => setTask(null)} className="btn-secondary">
-                Chicken Out
+              <button type="button" onClick={handleChickenOut} disabled={isSubmitting} className="btn-secondary">
+                {isSubmitting ? '...' : 'Chicken Out'}
               </button>
               <button type="submit" disabled={isSubmitting} className="btn-primary" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}>
                 {isSubmitting ? <span className="loader"></span> : <><CheckCircle2 /> Mark as Done</>}
@@ -267,6 +309,20 @@ export default function Home() {
           <br/>
           <button onClick={() => { setTask(null); setSuccess(false); }} className="btn-primary">
             Another one!
+          </button>
+        </div>
+      )}
+
+      {chickenMsg && (
+        <div className="glass-card animate-shake" style={{ textAlign: 'center', border: '1px solid var(--destructive)' }}>
+          <h2 style={{ color: 'var(--destructive)', marginBottom: '1rem' }}>Coward.</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>You couldn't handle the heat.</p>
+          <div style={{ background: 'rgba(255, 0, 0, 0.1)', border: '1px solid var(--destructive)', padding: '1rem', borderRadius: '12px', display: 'inline-block', marginBottom: '2rem' }}>
+            <span style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ff4d4f' }}>- {chickenMsg} Aura Lost 💔</span>
+          </div>
+          <br/>
+          <button onClick={() => setChickenMsg(null)} className="btn-secondary">
+            Try again, weakling
           </button>
         </div>
       )}

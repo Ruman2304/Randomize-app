@@ -10,7 +10,7 @@ export async function GET() {
     }
 
     const history = await allQuery(`
-      SELECT ut.id, ut.video_path, ut.created_at, ut.is_public, t.location, t.intensity, t.description
+      SELECT ut.id, ut.video_path, ut.created_at, ut.is_public, ut.status, t.location, t.intensity, t.description
       FROM user_tasks ut
       JOIN tasks t ON ut.task_id = t.id
       WHERE ut.user_id = ?

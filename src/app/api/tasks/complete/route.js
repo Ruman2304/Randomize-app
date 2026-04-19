@@ -24,6 +24,11 @@ export async function POST(req) {
 
     // If it's a generic task, we need to create it in the database first to save it
     if (taskIdString === 'generic') {
+      if (intensity == 2) auraReward = 30;
+      else if (intensity == 3) auraReward = 50;
+      else if (intensity == 4) auraReward = 80;
+      else if (intensity == 5) auraReward = 100;
+
       const result = await runQuery(
         'INSERT INTO tasks (location, intensity, description, quest_type, aura_reward) VALUES (?, ?, ?, ?, ?)',
         [location || 'unknown', intensity || 1, description || 'A wild task', 'side', auraReward]
